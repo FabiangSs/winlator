@@ -100,6 +100,41 @@ jobs:
 
 
       # ============================================================
+      # 3.1. TRY PATCHING OR FALLBACK TO X11 HEADERS
+      # ============================================================
+
+      - name: Apply Vulkan Patch or Install X11 Fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "======================================"
+          echo "TRYING OPTION 1: PATCH VORTEK CMAKE"
+          echo "======================================"
+
+          # Aplicar parche cambiando XLIB por ANDROID
+          find app/app/src/main/cpp/vortekrenderer -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/VK_USE_PLATFORM_XLIB_KHR/VK_USE_PLATFORM_ANDROID_KHR/g' {} + || true
+
+          # Verificar si la solución 1 resuelve el requerimiento de headers
+          NDK_SYSROOT="$ANDROID_HOME/ndk/24.0.8215888/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          
+          echo "Verificando compatibilidad de cabeceras..."
+          if $ANDROID_HOME/ndk/24.0.8215888/toolchains/llvm/prebuilt/linux-x86_64/bin/clang \
+            --target=aarch64-none-linux-android26 \
+            --sysroot="$NDK_SYSROOT" \
+            -DVK_USE_PLATFORM_ANDROID_KHR \
+            -E -xc - < /dev/null > /dev/null 2>&1; then
+            echo "Opción 1 exitosa: El parche de Android se aplico correctamente."
+          else
+            echo "--------------------------------------"
+            echo "FALLBACK TO OPTION 2: INSTALLING X11 HEADERS"
+            echo "--------------------------------------"
+            sudo apt-get update
+            sudo apt-get install -y libx11-dev libxext-dev
+          fi
+
+
+      # ============================================================
       # 4. VERIFY COMPONENTS
       # ============================================================
 
