@@ -1,45 +1,140 @@
-name: Winlator Build
+name: Winlator Ultimate
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build:
-    name: Build Winlator
+
+  build-winlator:
+
+    name: Build Winlator ARM64
+
     runs-on: ubuntu-24.04
 
     steps:
 
-      - name: Checkout repository
+      # ==========================================================
+      # 1. CHECKOUT TU FORK
+      # ==========================================================
+
+      - name: Checkout Winlator
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
+          submodules: recursive
 
-      - name: Show repository
+      # ==========================================================
+      # 2. MOSTRAR REPOSITORIO
+      # ==========================================================
+
+      - name: Repository information
         run: |
-          echo "Repository:"
-          pwd
+          echo "======================================"
+          echo "WINLATOR"
+          echo "======================================"
+
+          git remote -v
 
           echo ""
-          echo "Files:"
-          ls -la
+          echo "Current commit:"
+          git log -1 --oneline
 
           echo ""
           echo "Submodules:"
           git submodule status
+
+      # ==========================================================
+      # 3. SINCRONIZAR COMPONENTES DE WINLATOR
+      #
+      # Winlator utiliza:
+      #
+      # app
+      # vortek
+      # gladio
+      #
+      # ==========================================================
+
+      - name: Update Winlator components
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Updating Winlator components..."
+
+          for repo in app vortek gladio; do
+
+            echo ""
+            echo "======================================"
+            echo "$repo"
+            echo "======================================"
+
+            git -C "$repo" remote -v
+
+            git -C "$repo" fetch --prune origin
+
+            git -C "$repo" checkout main
+
+            git -C "$repo" reset --hard origin/main
+
+            echo ""
+            echo "Commit:"
+            git -C "$repo" log -1 --oneline
+
+          done
+
+      # ==========================================================
+      # 4. VERIFICAR VORTEK
+      # ==========================================================
+
+      - name: Verify Vortek
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching Vortek serializer..."
+
+          SERIALIZER=$(find vortek \
+            -type f \
+            -name "vortek_serializer.h" \
+            -print -quit)
+
+          if [ -z "$SERIALIZER" ]; then
+            echo "::error::vortek_serializer.h not found"
+            exit 1
+          fi
+
+          echo "Found:"
+          echo "$SERIALIZER"
+
+      # ==========================================================
+      # 5. JAVA 17
+      # ==========================================================
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Setup Android SDK
+      # ==========================================================
+      # 6. ANDROID SDK
+      # ==========================================================
+
+      - name: Setup Android
         uses: android-actions/setup-android@v3
 
-      - name: Install Android tools
+      # ==========================================================
+      # 7. ANDROID TOOLCHAIN
+      # ==========================================================
+
+      - name: Install Android toolchain
+        shell: bash
         run: |
+
           yes | sdkmanager --licenses || true
 
           sdkmanager \
@@ -49,50 +144,181 @@ jobs:
             "ndk;24.0.8215888" \
             "cmake;3.22.1"
 
-      - name: Update submodules
+      # ==========================================================
+      # 8. CONFIGURAR NDK
+      # ==========================================================
+
+      - name: Configure NDK
         run: |
-          set -e
 
-          for repo in app vortek gladio; do
-            echo "Updating $repo"
+          echo \
+          "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/24.0.8215888" \
+          >> "$GITHUB_ENV"
 
-            git -C "$repo" fetch origin main
-            git -C "$repo" checkout main
-            git -C "$repo" reset --hard origin/main
-          done
+      # ==========================================================
+      # 9. VERIFICAR TOOLCHAIN
+      # ==========================================================
 
-      - name: Check Vortek
+      - name: Verify build environment
         run: |
-          echo "Searching vortek_serializer.h"
 
-          find vortek \
-            -type f \
-            -name "vortek_serializer.h" \
-            -print
+          echo "Java:"
+          java -version
 
-      - name: Build
+          echo ""
+          echo "NDK:"
+          echo "$ANDROID_NDK_HOME"
+
+          echo ""
+          echo "CMake:"
+          "$ANDROID_SDK_ROOT/cmake/3.22.1/bin/cmake" --version
+
+      # ==========================================================
+      # 10. PREPARAR GRADLE
+      # ==========================================================
+
+      - name: Prepare Gradle
         working-directory: app
         run: |
+
           chmod +x gradlew
 
-          ./gradlew assembleDebug \
+          ./gradlew --version
+
+      # ==========================================================
+      # 11. CLEAN
+      # ==========================================================
+
+      - name: Clean Winlator
+        working-directory: app
+        run: |
+
+          ./gradlew clean \
             --no-daemon \
             --stacktrace \
             --console=plain
 
-      - name: Find APK
+      # ==========================================================
+      # 12. BUILD WINLATOR
+      # ==========================================================
+
+      - name: Build Winlator
+        working-directory: app
+        run: |
+
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            --console=plain \
+            --info
+
+      # ==========================================================
+      # 13. BUSCAR APK
+      # ==========================================================
+
+      - name: Locate Winlator APK
         if: always()
         run: |
-          echo "APK files:"
+
+          echo "======================================"
+          echo "WINLATOR APK"
+          echo "======================================"
+
           find app/build/outputs \
             -type f \
             -name "*.apk" \
             -print || true
 
-      - name: Upload APK
+      # ==========================================================
+      # 14. PREPARAR APK
+      # ==========================================================
+
+      - name: Prepare Winlator APK
+        if: success()
+        shell: bash
+        run: |
+
+          set -e
+
+          mkdir -p dist
+
+          APK=$(find app/build/outputs \
+            -type f \
+            -name "*.apk" \
+            -print -quit)
+
+          if [ -z "$APK" ]; then
+            echo "::error::Winlator APK was not generated"
+            exit 1
+          fi
+
+          cp "$APK" \
+            dist/Winlator-Ultimate-ARM64.apk
+
+          echo ""
+          echo "APK:"
+          ls -lh dist/Winlator-Ultimate-ARM64.apk
+
+          echo ""
+          echo "SHA256:"
+          sha256sum dist/Winlator-Ultimate-ARM64.apk
+
+      # ==========================================================
+      # 15. ARTIFACT
+      # ==========================================================
+
+      - name: Upload Winlator APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-ARM64
-          path: app/build/outputs/apk/**/*.apk
+          name: Winlator-Ultimate-ARM64
+          path: dist/Winlator-Ultimate-ARM64.apk
           if-no-files-found: error
+          retention-days: 30
+
+      # ==========================================================
+      # 16. DIAGNÓSTICO
+      # ==========================================================
+
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winlator-build-diagnostics
+          path: |
+            app/build/outputs/**
+            app/build/intermediates/**
+            app/build/reports/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ==========================================================
+      # 17. SUMMARY
+      # ==========================================================
+
+      - name: Winlator build summary
+        if: always()
+        shell: bash
+        run: |
+
+          {
+            echo "# Winlator Ultimate"
+            echo ""
+            echo "## Winlator"
+            echo "\`$(git rev-parse --short HEAD)\`"
+            echo ""
+            echo "## Components"
+            echo ""
+            echo "| Component | Commit |"
+            echo "|---|---|"
+            echo "| App | \`$(git -C app rev-parse --short HEAD)\` |"
+            echo "| Vortek | \`$(git -C vortek rev-parse --short HEAD)\` |"
+            echo "| Gladio | \`$(git -C gladio rev-parse --short HEAD)\` |"
+            echo ""
+            echo "## Toolchain"
+            echo "- Android 35"
+            echo "- Java 17"
+            echo "- NDK 24.0.8215888"
+            echo "- CMake 3.22.1"
+            echo "- ARM64"
+          } >> "$GITHUB_STEP_SUMMARY"
