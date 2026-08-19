@@ -64,34 +64,39 @@ jobs:
           git rev-parse HEAD
 
           echo ""
-          echo "Submodules:"
-          git submodule status --recursive
-
-          echo ""
           echo "Repository status:"
           git status --short --branch
 
 
       # ============================================================
-      # 3. FIX SUBMODULES
+      # 3. CLONE & SETUP C++ COMPONENTS (GLADIO & VORTEK)
       # ============================================================
 
-      - name: Initialize and update submodules
+      - name: Clone C++ Dependencies directly into app
         shell: bash
         run: |
           set -euo pipefail
 
           echo "======================================"
-          echo "FIXING SUBMODULES"
+          echo "CLONING NATIVE DEPENDENCIES"
           echo "======================================"
 
-          git submodule update --init --recursive --force
-          git submodule sync --recursive
-          git submodule foreach --recursive 'git fetch origin && git checkout origin/main || git checkout origin/master || true'
+          TARGET_CPP_DIR="app/app/src/main/cpp"
 
-          echo ""
-          echo "Updated submodule status:"
-          git submodule status --recursive
+          # Limpiar carpetas objetivo para prevenir conflictos de archivos faltantes
+          rm -rf "$TARGET_CPP_DIR/gladio"
+          rm -rf "$TARGET_CPP_DIR/vortekrenderer"
+
+          echo "Clonando Gladio..."
+          git clone https://github.com/brunodev85/gladio.git "$TARGET_CPP_DIR/gladio"
+
+          echo "Clonando Vortek..."
+          git clone https://github.com/brunodev85/vortek.git "$TARGET_CPP_DIR/vortekrenderer"
+
+          # Si requieres tener copias también en la raíz para logs/diagnósticos
+          rm -rf vortek gladio
+          cp -r "$TARGET_CPP_DIR/vortekrenderer" vortek
+          cp -r "$TARGET_CPP_DIR/gladio" gladio
 
 
       # ============================================================
@@ -107,7 +112,7 @@ jobs:
           echo "COMPONENTS"
           echo "======================================"
 
-          for repo in app vortek gladio; do
+          for repo in app/app/src/main/cpp/vortekrenderer app/app/src/main/cpp/gladio; do
 
             echo ""
             echo "--------------------------------------"
@@ -121,9 +126,6 @@ jobs:
 
             echo "Remote:"
             git -C "$repo" remote -v || true
-
-            echo "Status:"
-            git -C "$repo" status --short || true
 
           done
 
@@ -141,23 +143,19 @@ jobs:
           echo "VORTEK SERIALIZER"
           echo "======================================"
 
-          HEADER="$(find vortek -type f -name 'vortek_serializer.h' -print -quit 2>/dev/null || echo '')"
+          HEADER="$(find app/app/src/main/cpp/vortekrenderer -type f -name 'vortek_serializer.h' -print -quit 2>/dev/null || echo '')"
 
           if [ -z "$HEADER" ]; then
-            echo "::error::vortek_serializer.h was not found"
+            echo "::error::vortek_serializer.h was not found in native path"
 
             echo ""
             echo "Vortek directory structure:"
-            find vortek -type f -name '*.h' -o -name '*.hpp' 2>/dev/null | head -50 || echo "No headers found"
-
-            echo ""
-            echo "All vortek files:"
-            find vortek -type f 2>/dev/null | head -100 || echo "No files found"
+            find app/app/src/main/cpp/vortekrenderer -type f -name '*.h' -o -name '*.hpp' 2>/dev/null | head -50 || echo "No headers found"
 
             exit 1
           fi
 
-          echo "FOUND:"
+          echo "FOUND AT NATIVE PATH:"
           echo "$HEADER"
 
           echo ""
@@ -186,8 +184,6 @@ jobs:
             --exclude-dir=build \
             'vortek_serializer' \
             app \
-            vortek \
-            gladio \
             2>/dev/null \
             | head -300 \
             | tee diagnostics/vortek-references.txt || true
@@ -195,7 +191,7 @@ jobs:
           echo ""
           echo "Vortek CMake files:"
 
-          find vortek \
+          find app/app/src/main/cpp/vortekrenderer \
             -type f \
             \( \
               -name 'CMakeLists.txt' \
@@ -266,10 +262,6 @@ jobs:
           echo "ANDROID_HOME:"
           echo "$ANDROID_HOME"
 
-          echo ""
-          echo "ANDROID_SDK_ROOT:"
-          echo "${ANDROID_SDK_ROOT:-not-set}"
-
           NDK_PATH="$ANDROID_HOME/ndk/24.0.8215888"
 
           test -d "$NDK_PATH"
@@ -302,23 +294,11 @@ jobs:
           java -version
 
           echo ""
-          echo "Javac:"
-          javac -version
-
-          echo ""
           echo "Gradle:"
           cd app
           chmod +x gradlew
           ./gradlew --version
           cd ..
-
-          echo ""
-          echo "Android SDK:"
-          echo "$ANDROID_HOME"
-
-          echo ""
-          echo "NDK:"
-          echo "$ANDROID_NDK_HOME"
 
           echo ""
           echo "CMake:"
@@ -368,28 +348,6 @@ jobs:
             -print \
             | sort \
             | tee diagnostics/native-build-files.txt
-
-
-      # ============================================================
-      # 13.5. PATCH DUPLICATED HEADERS
-      # ============================================================
-
-      - name: Remove duplicated headers
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "PATCHING WORKSPACE"
-          echo "======================================"
-
-          if [ -f "app/app/src/main/cpp/vortekrenderer/include/vortek_serializer.h" ]; then
-            echo "Eliminando archivo duplicado en app..."
-            rm -f app/app/src/main/cpp/vortekrenderer/include/vortek_serializer.h
-            echo "Archivo removido con éxito."
-          else
-            echo "No se encontró cabecera duplicada en app. Todo limpio."
-          fi
 
 
       # ============================================================
@@ -451,14 +409,6 @@ jobs:
             -print \
             -exec ls -lh {} \;
 
-          echo ""
-          echo "APK count:"
-
-          find app/build \
-            -type f \
-            -name '*.apk' \
-            | wc -l
-
 
       # ============================================================
       # 17. PREPARE APK
@@ -481,10 +431,6 @@ jobs:
 
           echo "Found APK at: $APK"
           cp "$APK" dist/Winlator-Ultimate-ARM64.apk
-
-          echo ""
-          echo "APK:"
-          ls -lh dist/Winlator-Ultimate-ARM64.apk
 
           echo ""
           echo "SHA256:"
@@ -519,78 +465,15 @@ jobs:
 
           echo "Collecting diagnostics..."
 
-          git rev-parse HEAD \
-            > diagnostics/root-commit.txt
+          git rev-parse HEAD > diagnostics/root-commit.txt
+          git -C app/app/src/main/cpp/vortekrenderer rev-parse HEAD > diagnostics/vortek-commit.txt || true
+          git -C app/app/src/main/cpp/gladio rev-parse HEAD > diagnostics/gladio-commit.txt || true
 
-          git submodule status --recursive \
-            > diagnostics/submodule-status.txt
-
-          git -C app rev-parse HEAD \
-            > diagnostics/app-commit.txt
-
-          git -C vortek rev-parse HEAD \
-            > diagnostics/vortek-commit.txt
-
-          git -C gladio rev-parse HEAD \
-            > diagnostics/gladio-commit.txt
-
-          {
-            echo "APP"
-            git -C app remote -v
-
-            echo ""
-            echo "VORTEK"
-            git -C vortek remote -v
-
-            echo ""
-            echo "GLADIO"
-            git -C gladio remote -v
-          } > diagnostics/submodule-remotes.txt
-
-          {
-            echo "ROOT"
-            git status --short --branch
-
-            echo ""
-            echo "APP"
-            git -C app status --short --branch
-
-            echo ""
-            echo "VORTEK"
-            git -C vortek status --short --branch
-
-            echo ""
-            echo "GLADIO"
-            git -C gladio status --short --branch
-          } > diagnostics/git-status.txt
-
-          find vortek \
+          find app/app/src/main/cpp/vortekrenderer \
             -type f \
             -name 'vortek_serializer.h' \
             -print \
             > diagnostics/vortek-header.txt 2>&1
-
-          find . \
-            -type f \
-            \( \
-              -name '*.log' \
-              -o -name '*.html' \
-              -o -name '*.xml' \
-            \) \
-            -not -path '*/.git/*' \
-            -not -path '*/node_modules/*' \
-            -not -path '*/build/intermediates/*' \
-            -print \
-            | sort \
-            > diagnostics/build-reports.txt
-
-          find app/build \
-            -type f \
-            -name '*.apk' \
-            > diagnostics/build-outputs.txt 2>/dev/null || true
-
-          env | sort \
-            > diagnostics/environment.txt
 
           echo "Diagnostics complete."
 
@@ -624,48 +507,19 @@ jobs:
             echo "# Winlator Ultimate"
             echo ""
 
-            echo "## Commits"
-            echo ""
-            echo "| Component | Commit |"
-            echo "|---|---|"
-            echo "| Root | \`$(git rev-parse --short HEAD)\` |"
-            echo "| App | \`$(git -C app rev-parse --short HEAD)\` |"
-            echo "| Vortek | \`$(git -C vortek rev-parse --short HEAD)\` |"
-            echo "| Gladio | \`$(git -C gladio rev-parse --short HEAD)\` |"
-
-            echo ""
             echo "## Toolchain"
-            echo ""
             echo "- Ubuntu 24.04"
             echo "- Android API 35"
-            echo "- Build Tools 35.0.0"
             echo "- Java 17"
             echo "- NDK 24.0.8215888"
             echo "- CMake 3.22.1"
-            echo "- ARM64"
-
             echo ""
-            echo "## Vortek Serializer"
-            echo ""
+            echo "## Vortek Serializer Status"
 
-            if find vortek \
-              -type f \
-              -name 'vortek_serializer.h' \
-              -print \
-              | grep -q .; then
+            if find app/app/src/main/cpp/vortekrenderer -type f -name 'vortek_serializer.h' | grep -q .; then
               echo "FOUND"
             else
               echo "NOT FOUND"
             fi
-
-            echo ""
-            echo "## APK"
-            echo ""
-
-            find app/build \
-              -type f \
-              -name '*.apk' \
-              -print \
-              2>/dev/null || true
 
           } >> "$GITHUB_STEP_SUMMARY"
