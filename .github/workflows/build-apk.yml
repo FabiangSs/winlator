@@ -35,10 +35,10 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. CHECKOUT COMPLETO
+      # 1. CHECKOUT
       # ============================================================
 
-      - name: Checkout Winlator + submodules
+      - name: Checkout Winlator
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -47,29 +47,21 @@ jobs:
 
 
       # ============================================================
-      # 2. INFORMACIÓN DEL REPOSITORIO
+      # 2. SHOW REPOSITORY STATE
       # ============================================================
 
       - name: Show repository state
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "======================================"
-          echo "WINLATOR BUILD"
+          echo "WINLATOR"
           echo "======================================"
 
           echo ""
           echo "Root commit:"
           git rev-parse HEAD
-
-          echo ""
-          echo "Root short commit:"
-          git rev-parse --short HEAD
-
-          echo ""
-          echo "Branches:"
-          git branch -a || true
 
           echo ""
           echo "Submodules:"
@@ -79,50 +71,35 @@ jobs:
           echo "Repository status:"
           git status --short --branch
 
-          echo ""
-          echo "Top-level files:"
-          ls -la
-
 
       # ============================================================
-      # 3. VERIFICAR SUBMÓDULOS
+      # 3. VERIFY COMPONENTS
       # ============================================================
 
       - name: Verify Winlator components
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "======================================"
-          echo "WINLATOR COMPONENTS"
+          echo "COMPONENTS"
           echo "======================================"
 
           for repo in app vortek gladio; do
 
             echo ""
             echo "--------------------------------------"
-            echo "COMPONENT: $repo"
+            echo "$repo"
             echo "--------------------------------------"
 
             test -d "$repo"
 
-            echo ""
             echo "Commit:"
             git -C "$repo" rev-parse HEAD
 
-            echo ""
-            echo "Short commit:"
-            git -C "$repo" rev-parse --short HEAD
-
-            echo ""
-            echo "Branch:"
-            git -C "$repo" branch --show-current || true
-
-            echo ""
             echo "Remote:"
             git -C "$repo" remote -v || true
 
-            echo ""
             echo "Status:"
             git -C "$repo" status --short || true
 
@@ -130,125 +107,85 @@ jobs:
 
 
       # ============================================================
-      # 4. NO FORZAR SUBMÓDULOS A MAIN
-      # ============================================================
-      #
-      # IMPORTANTE:
-      #
-      # No hacemos:
-      #
-      # git -C app checkout main
-      # git -C app reset --hard origin/main
-      #
-      # ni lo mismo para Vortek/Gladio.
-      #
-      # El repositorio principal puede apuntar a commits concretos
-      # compatibles entre sí.
-      #
-      # ============================================================
-
-
-      # ============================================================
-      # 5. VERIFICAR VORTEK
+      # 4. VERIFY VORTEK SERIALIZER
       # ============================================================
 
       - name: Verify Vortek serializer
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "======================================"
-          echo "VERIFY VORTEK"
+          echo "VORTEK SERIALIZER"
           echo "======================================"
 
-          test -d vortek
-
-          echo ""
-          echo "Vortek commit:"
-          git -C vortek rev-parse HEAD
-
-          echo ""
-          echo "Searching vortek_serializer.h..."
-
-          HEADER="$(find vortek \
-            -type f \
-            -name "vortek_serializer.h" \
-            -print \
-            -quit || true)"
+          HEADER="$(find vortek -type f -name 'vortek_serializer.h' -print -quit)"
 
           if [ -z "$HEADER" ]; then
+            echo "::error::vortek_serializer.h was not found"
 
             echo ""
-            echo "::error::vortek_serializer.h was not found."
-
-            echo ""
-            echo "Available Vortek headers:"
-
-            find vortek \
-              -type f \
-              \
-                -name "*.h" \
-                -o -name "*.hpp" \
-              \
+            echo "Vortek headers:"
+            find vortek -type f \
+              \( -name '*.h' -o -name '*.hpp' \) \
               -print \
               | sort \
-              | head -300 || true
+              | head -300
 
             exit 1
           fi
 
-          echo ""
           echo "FOUND:"
           echo "$HEADER"
 
           echo ""
-          echo "Header information:"
+          echo "Header:"
           ls -lh "$HEADER"
 
 
       # ============================================================
-      # 6. INSPECCIONAR INTEGRACIÓN VORTEK
+      # 5. INSPECT VORTEK REFERENCES
       # ============================================================
 
       - name: Inspect Vortek integration
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+
+          mkdir -p diagnostics
 
           echo "======================================"
           echo "VORTEK REFERENCES"
           echo "======================================"
 
-          echo ""
-          echo "References to vortek_serializer:"
-
           grep -Rni \
             --exclude-dir=.git \
             --exclude-dir=.gradle \
             --exclude-dir=build \
-            "vortek_serializer" \
+            'vortek_serializer' \
             app \
             vortek \
             gladio \
             2>/dev/null \
-            | head -300 || true
+            | head -300 \
+            | tee diagnostics/vortek-references.txt || true
 
           echo ""
           echo "Vortek CMake files:"
 
           find vortek \
             -type f \
-            \
-              -name "CMakeLists.txt" \
-              -o -name "*.cmake" \
-            \
+            \( \
+              -name 'CMakeLists.txt' \
+              -o -name '*.cmake' \
+            \) \
             -print \
             | sort \
-            | head -200 || true
+            | tee diagnostics/vortek-cmake-files.txt || true
 
 
       # ============================================================
-      # 7. JAVA 17
+      # 6. JAVA 17
       # ============================================================
 
       - name: Setup Java 17
@@ -260,7 +197,7 @@ jobs:
 
 
       # ============================================================
-      # 8. ANDROID SDK
+      # 7. ANDROID SDK
       # ============================================================
 
       - name: Setup Android SDK
@@ -268,13 +205,13 @@ jobs:
 
 
       # ============================================================
-      # 9. INSTALAR ANDROID TOOLCHAIN
+      # 8. INSTALL ANDROID COMPONENTS
       # ============================================================
 
-      - name: Install Android SDK components
+      - name: Install Android toolchain
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "======================================"
           echo "ANDROID TOOLCHAIN"
@@ -291,13 +228,13 @@ jobs:
 
 
       # ============================================================
-      # 10. CONFIGURAR NDK
+      # 9. CONFIGURE NDK
       # ============================================================
 
       - name: Configure Android environment
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "======================================"
           echo "ANDROID ENVIRONMENT"
@@ -313,34 +250,26 @@ jobs:
 
           NDK_PATH="$ANDROID_HOME/ndk/24.0.8215888"
 
+          test -d "$NDK_PATH"
+
           echo ""
           echo "NDK:"
           echo "$NDK_PATH"
-
-          test -d "$NDK_PATH"
 
           {
             echo "ANDROID_NDK_ROOT=$NDK_PATH"
             echo "ANDROID_NDK_HOME=$NDK_PATH"
           } >> "$GITHUB_ENV"
 
-          echo ""
-          echo "SDK directory:"
-          ls -la "$ANDROID_HOME"
-
-          echo ""
-          echo "NDK directory:"
-          ls -la "$NDK_PATH"
-
 
       # ============================================================
-      # 11. VERIFICAR TOOLCHAIN
+      # 10. VERIFY TOOLCHAIN
       # ============================================================
 
       - name: Verify build environment
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "======================================"
           echo "BUILD ENVIRONMENT"
@@ -351,86 +280,40 @@ jobs:
           java -version
 
           echo ""
-          echo "Java compiler:"
+          echo "Javac:"
           javac -version
 
           echo ""
-          echo "ANDROID_HOME:"
+          echo "Gradle:"
+          cd app
+          chmod +x gradlew
+          ./gradlew --version
+          cd ..
+
+          echo ""
+          echo "Android SDK:"
           echo "$ANDROID_HOME"
 
           echo ""
-          echo "ANDROID_NDK_HOME:"
+          echo "NDK:"
           echo "$ANDROID_NDK_HOME"
-
-          echo ""
-          echo "NDK version:"
-          "$ANDROID_NDK_HOME/ndk-build" --version || true
 
           echo ""
           echo "CMake:"
           "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --version
 
-          echo ""
-          echo "ADB:"
-          adb version
-
-          echo ""
-          echo "SDK platforms:"
-          ls -la "$ANDROID_HOME/platforms"
-
-          echo ""
-          echo "SDK build-tools:"
-          ls -la "$ANDROID_HOME/build-tools"
-
-          echo ""
-          echo "SDK NDK:"
-          ls -la "$ANDROID_HOME/ndk"
-
 
       # ============================================================
-      # 12. PREPARAR GRADLE
+      # 11. GRADLE TASKS
       # ============================================================
 
-      - name: Prepare Gradle wrapper
-        working-directory: app
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          test -f ./gradlew
-
-          chmod +x ./gradlew
-
-          ./gradlew --version
-
-
-      # ============================================================
-      # 13. CREAR DIRECTORIO DE DIAGNÓSTICO
-      # ============================================================
-
-      - name: Prepare diagnostics directory
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          mkdir -p diagnostics
-
-          echo "Diagnostics directory ready."
-
-
-      # ============================================================
-      # 14. INSPECCIONAR GRADLE
-      # ============================================================
-
-      - name: Inspect Gradle project
+      - name: Verify Gradle project
         working-directory: app
         shell: bash
         run: |
           set -o pipefail
 
-          echo "======================================"
-          echo "GRADLE PROJECT"
-          echo "======================================"
+          mkdir -p ../diagnostics
 
           ./gradlew tasks \
             --no-daemon \
@@ -438,33 +321,15 @@ jobs:
             --console=plain \
             2>&1 | tee ../diagnostics/gradle-tasks.log
 
-          echo ""
-          echo "======================================"
-          echo "GRADLE BUILD FILES"
-          echo "======================================"
-
-          find . \
-            -type f \
-            \
-              -name "build.gradle" \
-              -o -name "build.gradle.kts" \
-              -o -name "settings.gradle" \
-              -o -name "settings.gradle.kts" \
-              -o -name "gradle.properties" \
-            \
-            -print \
-            | sort \
-            | tee ../diagnostics/gradle-build-files.txt
-
 
       # ============================================================
-      # 15. INSPECCIONAR BUILD NATIVO
+      # 12. INSPECT BUILD FILES
       # ============================================================
 
       - name: Inspect native build configuration
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           echo "======================================"
           echo "NATIVE BUILD FILES"
@@ -472,12 +337,294 @@ jobs:
 
           find . \
             -type f \
-            \
-              -name "CMakeLists.txt" \
-              -o -name "Android.mk" \
-              -o -name "Application.mk" \
-              -o -name "*.cmake" \
-            \
+            \( \
+              -name 'CMakeLists.txt' \
+              -o -name 'Android.mk' \
+              -o -name 'Application.mk' \
+              -o -name '*.cmake' \
+            \) \
             -print \
             | sort \
-            | tee
+            | tee diagnostics/native-build-files.txt
+
+
+      # ============================================================
+      # 13. CLEAN
+      # ============================================================
+
+      - name: Clean Gradle
+        working-directory: app
+        shell: bash
+        run: |
+          set -o pipefail
+
+          ./gradlew clean \
+            --no-daemon \
+            --stacktrace \
+            --console=plain \
+            2>&1 | tee ../diagnostics/gradle-clean.log
+
+
+      # ============================================================
+      # 14. BUILD WINLATOR
+      # ============================================================
+
+      - name: Build Winlator ARM64
+        working-directory: app
+        shell: bash
+        run: |
+          set -o pipefail
+
+          echo "======================================"
+          echo "BUILD WINLATOR"
+          echo "======================================"
+
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            --console=plain \
+            --info \
+            2>&1 | tee ../diagnostics/gradle-build.log
+
+
+      # ============================================================
+      # 15. LOCATE APK
+      # ============================================================
+
+      - name: Locate APK
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          echo "======================================"
+          echo "GENERATED APK"
+          echo "======================================"
+
+          find app/build \
+            -type f \
+            -name '*.apk' \
+            -print \
+            -exec ls -lh {} \;
+
+          echo ""
+          echo "APK count:"
+
+          find app/build \
+            -type f \
+            -name '*.apk' \
+            | wc -l
+
+
+      # ============================================================
+      # 16. PREPARE APK
+      # ============================================================
+
+      - name: Prepare APK
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          APK="$(find app/build/outputs \
+            -type f \
+            -name '*.apk' \
+            -print \
+            | head -n 1)"
+
+          if [ -z "$APK" ]; then
+            echo "::error::APK was not generated"
+            exit 1
+          fi
+
+          cp "$APK" dist/Winlator-Ultimate-ARM64.apk
+
+          echo ""
+          echo "APK:"
+          ls -lh dist/Winlator-Ultimate-ARM64.apk
+
+          echo ""
+          echo "SHA256:"
+          sha256sum dist/Winlator-Ultimate-ARM64.apk
+
+
+      # ============================================================
+      # 17. UPLOAD APK
+      # ============================================================
+
+      - name: Upload Winlator APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winlator-Ultimate-ARM64
+          path: dist/Winlator-Ultimate-ARM64.apk
+          if-no-files-found: error
+          retention-days: 30
+
+
+      # ============================================================
+      # 18. COLLECT DIAGNOSTICS
+      # ============================================================
+
+      - name: Collect diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          mkdir -p diagnostics
+
+          echo "Collecting diagnostics..."
+
+          git rev-parse HEAD \
+            > diagnostics/root-commit.txt
+
+          git submodule status --recursive \
+            > diagnostics/submodule-status.txt
+
+          git -C app rev-parse HEAD \
+            > diagnostics/app-commit.txt
+
+          git -C vortek rev-parse HEAD \
+            > diagnostics/vortek-commit.txt
+
+          git -C gladio rev-parse HEAD \
+            > diagnostics/gladio-commit.txt
+
+          {
+            echo "APP"
+            git -C app remote -v
+
+            echo ""
+            echo "VORTEK"
+            git -C vortek remote -v
+
+            echo ""
+            echo "GLADIO"
+            git -C gladio remote -v
+          } > diagnostics/submodule-remotes.txt
+
+          {
+            echo "ROOT"
+            git status --short --branch
+
+            echo ""
+            echo "APP"
+            git -C app status --short --branch
+
+            echo ""
+            echo "VORTEK"
+            git -C vortek status --short --branch
+
+            echo ""
+            echo "GLADIO"
+            git -C gladio status --short --branch
+          } > diagnostics/git-status.txt
+
+          find vortek \
+            -type f \
+            -name 'vortek_serializer.h' \
+            -print \
+            > diagnostics/vortek-header.txt
+
+          find . \
+            -type f \
+            \( \
+              -name '*.log' \
+              -o -name '*.html' \
+              -o -name '*.xml' \
+            \) \
+            -not -path '*/.git/*' \
+            -not -path '*/node_modules/*' \
+            -not -path '*/build/intermediates/*' \
+            -print \
+            | sort \
+            > diagnostics/build-reports.txt
+
+          find app/build/outputs \
+            -type f \
+            -print \
+            > diagnostics/build-outputs.txt 2>/dev/null || true
+
+          env | sort \
+            > diagnostics/environment.txt
+
+          echo "Diagnostics complete."
+
+
+      # ============================================================
+      # 19. UPLOAD DIAGNOSTICS
+      # ============================================================
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winlator-build-diagnostics
+          path: |
+            diagnostics/**
+            app/build/outputs/**
+            app/build/reports/**
+          if-no-files-found: warn
+          retention-days: 14
+
+
+      # ============================================================
+      # 20. SUMMARY
+      # ============================================================
+
+      - name: Winlator build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# Winlator Ultimate"
+            echo ""
+
+            echo "## Commits"
+            echo ""
+            echo "| Component | Commit |"
+            echo "|---|---|"
+            echo "| Root | \`$(git rev-parse --short HEAD)\` |"
+            echo "| App | \`$(git -C app rev-parse --short HEAD)\` |"
+            echo "| Vortek | \`$(git -C vortek rev-parse --short HEAD)\` |"
+            echo "| Gladio | \`$(git -C gladio rev-parse --short HEAD)\` |"
+
+            echo ""
+            echo "## Toolchain"
+            echo ""
+            echo "- Ubuntu 24.04"
+            echo "- Android API 35"
+            echo "- Build Tools 35.0.0"
+            echo "- Java 17"
+            echo "- NDK 24.0.8215888"
+            echo "- CMake 3.22.1"
+            echo "- ARM64"
+
+            echo ""
+            echo "## Vortek Serializer"
+            echo ""
+
+            if find vortek \
+              -type f \
+              -name 'vortek_serializer.h' \
+              -print \
+              | grep -q .; then
+              echo "FOUND"
+            else
+              echo "NOT FOUND"
+            fi
+
+            echo ""
+            echo "## APK"
+            echo ""
+
+            find app/build/outputs \
+              -type f \
+              -name '*.apk' \
+              -print \
+              2>/dev/null || true
+
+          } >> "$GITHUB_STEP_SUMMARY"
