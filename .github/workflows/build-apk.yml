@@ -371,6 +371,28 @@ jobs:
 
 
       # ============================================================
+      # 13.5. PATCH DUPLICATED HEADERS
+      # ============================================================
+
+      - name: Remove duplicated headers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "======================================"
+          echo "PATCHING WORKSPACE"
+          echo "======================================"
+
+          if [ -f "app/app/src/main/cpp/vortekrenderer/include/vortek_serializer.h" ]; then
+            echo "Eliminando archivo duplicado en app..."
+            rm -f app/app/src/main/cpp/vortekrenderer/include/vortek_serializer.h
+            echo "Archivo removido con éxito."
+          else
+            echo "No se encontró cabecera duplicada en app. Todo limpio."
+          fi
+
+
+      # ============================================================
       # 14. CLEAN
       # ============================================================
 
