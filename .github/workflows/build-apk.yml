@@ -1,26 +1,98 @@
-      - name: Update Winlator components
-        shell: bash
-        run: |
-          set -euo pipefail
+name: Winlator Build
 
-          echo "========================================"
-          echo "UPDATING WINLATOR COMPONENTS"
-          echo "========================================"
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Winlator
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Show repository
+        run: |
+          echo "Repository:"
+          pwd
+
+          echo ""
+          echo "Files:"
+          ls -la
+
+          echo ""
+          echo "Submodules:"
+          git submodule status
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android tools
+        run: |
+          yes | sdkmanager --licenses || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;24.0.8215888" \
+            "cmake;3.22.1"
+
+      - name: Update submodules
+        run: |
+          set -e
 
           for repo in app vortek gladio; do
-            echo ""
-            echo ">>> $repo"
+            echo "Updating $repo"
 
-            git -C "$repo" fetch --prune origin
-
-            if git -C "$repo" show-ref --verify --quiet refs/remotes/origin/main; then
-              git -C "$repo" checkout -B main origin/main
-              git -C "$repo" reset --hard origin/main
-            else
-              echo "::error::$repo does not have origin/main"
-              exit 1
-            fi
-
-            echo "Commit:"
-            git -C "$repo" log -1 --oneline
+            git -C "$repo" fetch origin main
+            git -C "$repo" checkout main
+            git -C "$repo" reset --hard origin/main
           done
+
+      - name: Check Vortek
+        run: |
+          echo "Searching vortek_serializer.h"
+
+          find vortek \
+            -type f \
+            -name "vortek_serializer.h" \
+            -print
+
+      - name: Build
+        working-directory: app
+        run: |
+          chmod +x gradlew
+
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            --console=plain
+
+      - name: Find APK
+        if: always()
+        run: |
+          echo "APK files:"
+          find app/build/outputs \
+            -type f \
+            -name "*.apk" \
+            -print || true
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winlator-ARM64
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
