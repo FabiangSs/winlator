@@ -73,7 +73,29 @@ jobs:
 
 
       # ============================================================
-      # 3. VERIFY COMPONENTS
+      # 3. FIX SUBMODULES
+      # ============================================================
+
+      - name: Initialize and update submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "======================================"
+          echo "FIXING SUBMODULES"
+          echo "======================================"
+
+          git submodule update --init --recursive --force
+          git submodule sync --recursive
+          git submodule foreach --recursive 'git fetch origin && git checkout origin/main || git checkout origin/master || true'
+
+          echo ""
+          echo "Updated submodule status:"
+          git submodule status --recursive
+
+
+      # ============================================================
+      # 4. VERIFY COMPONENTS
       # ============================================================
 
       - name: Verify Winlator components
@@ -107,7 +129,7 @@ jobs:
 
 
       # ============================================================
-      # 4. VERIFY VORTEK SERIALIZER
+      # 5. VERIFY VORTEK SERIALIZER
       # ============================================================
 
       - name: Verify Vortek serializer
@@ -119,18 +141,18 @@ jobs:
           echo "VORTEK SERIALIZER"
           echo "======================================"
 
-          HEADER="$(find vortek -type f -name 'vortek_serializer.h' -print -quit)"
+          HEADER="$(find vortek -type f -name 'vortek_serializer.h' -print -quit 2>/dev/null || echo '')"
 
           if [ -z "$HEADER" ]; then
             echo "::error::vortek_serializer.h was not found"
 
             echo ""
-            echo "Vortek headers:"
-            find vortek -type f \
-              \( -name '*.h' -o -name '*.hpp' \) \
-              -print \
-              | sort \
-              | head -300
+            echo "Vortek directory structure:"
+            find vortek -type f -name '*.h' -o -name '*.hpp' 2>/dev/null | head -50 || echo "No headers found"
+
+            echo ""
+            echo "All vortek files:"
+            find vortek -type f 2>/dev/null | head -100 || echo "No files found"
 
             exit 1
           fi
@@ -139,12 +161,12 @@ jobs:
           echo "$HEADER"
 
           echo ""
-          echo "Header:"
+          echo "Header info:"
           ls -lh "$HEADER"
 
 
       # ============================================================
-      # 5. INSPECT VORTEK REFERENCES
+      # 6. INSPECT VORTEK REFERENCES
       # ============================================================
 
       - name: Inspect Vortek integration
@@ -185,7 +207,7 @@ jobs:
 
 
       # ============================================================
-      # 6. JAVA 17
+      # 7. JAVA 17
       # ============================================================
 
       - name: Setup Java 17
@@ -197,7 +219,7 @@ jobs:
 
 
       # ============================================================
-      # 7. ANDROID SDK
+      # 8. ANDROID SDK
       # ============================================================
 
       - name: Setup Android SDK
@@ -205,7 +227,7 @@ jobs:
 
 
       # ============================================================
-      # 8. INSTALL ANDROID COMPONENTS
+      # 9. INSTALL ANDROID COMPONENTS
       # ============================================================
 
       - name: Install Android toolchain
@@ -228,7 +250,7 @@ jobs:
 
 
       # ============================================================
-      # 9. CONFIGURE NDK
+      # 10. CONFIGURE NDK
       # ============================================================
 
       - name: Configure Android environment
@@ -263,7 +285,7 @@ jobs:
 
 
       # ============================================================
-      # 10. VERIFY TOOLCHAIN
+      # 11. VERIFY TOOLCHAIN
       # ============================================================
 
       - name: Verify build environment
@@ -304,14 +326,14 @@ jobs:
 
 
       # ============================================================
-      # 11. GRADLE TASKS
+      # 12. GRADLE TASKS
       # ============================================================
 
       - name: Verify Gradle project
         working-directory: app
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
 
           mkdir -p ../diagnostics
 
@@ -323,7 +345,7 @@ jobs:
 
 
       # ============================================================
-      # 12. INSPECT BUILD FILES
+      # 13. INSPECT BUILD FILES
       # ============================================================
 
       - name: Inspect native build configuration
@@ -349,14 +371,14 @@ jobs:
 
 
       # ============================================================
-      # 13. CLEAN
+      # 14. CLEAN
       # ============================================================
 
       - name: Clean Gradle
         working-directory: app
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
 
           ./gradlew clean \
             --no-daemon \
@@ -366,14 +388,14 @@ jobs:
 
 
       # ============================================================
-      # 14. BUILD WINLATOR
+      # 15. BUILD WINLATOR
       # ============================================================
 
       - name: Build Winlator ARM64
         working-directory: app
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
 
           echo "======================================"
           echo "BUILD WINLATOR"
@@ -388,7 +410,7 @@ jobs:
 
 
       # ============================================================
-      # 15. LOCATE APK
+      # 16. LOCATE APK
       # ============================================================
 
       - name: Locate APK
@@ -417,7 +439,7 @@ jobs:
 
 
       # ============================================================
-      # 16. PREPARE APK
+      # 17. PREPARE APK
       # ============================================================
 
       - name: Prepare APK
@@ -428,17 +450,14 @@ jobs:
 
           mkdir -p dist
 
-          APK="$(find app/build/outputs \
-            -type f \
-            -name '*.apk' \
-            -print \
-            | head -n 1)"
+          APK="$(find app/build -type f -name '*.apk' -print | head -n 1)"
 
           if [ -z "$APK" ]; then
             echo "::error::APK was not generated"
             exit 1
           fi
 
+          echo "Found APK at: $APK"
           cp "$APK" dist/Winlator-Ultimate-ARM64.apk
 
           echo ""
@@ -451,7 +470,7 @@ jobs:
 
 
       # ============================================================
-      # 17. UPLOAD APK
+      # 18. UPLOAD APK
       # ============================================================
 
       - name: Upload Winlator APK
@@ -465,7 +484,7 @@ jobs:
 
 
       # ============================================================
-      # 18. COLLECT DIAGNOSTICS
+      # 19. COLLECT DIAGNOSTICS
       # ============================================================
 
       - name: Collect diagnostics
@@ -527,7 +546,7 @@ jobs:
             -type f \
             -name 'vortek_serializer.h' \
             -print \
-            > diagnostics/vortek-header.txt
+            > diagnostics/vortek-header.txt 2>&1
 
           find . \
             -type f \
@@ -543,9 +562,9 @@ jobs:
             | sort \
             > diagnostics/build-reports.txt
 
-          find app/build/outputs \
+          find app/build \
             -type f \
-            -print \
+            -name '*.apk' \
             > diagnostics/build-outputs.txt 2>/dev/null || true
 
           env | sort \
@@ -555,7 +574,7 @@ jobs:
 
 
       # ============================================================
-      # 19. UPLOAD DIAGNOSTICS
+      # 20. UPLOAD DIAGNOSTICS
       # ============================================================
 
       - name: Upload build diagnostics
@@ -572,7 +591,7 @@ jobs:
 
 
       # ============================================================
-      # 20. SUMMARY
+      # 21. SUMMARY
       # ============================================================
 
       - name: Winlator build summary
@@ -621,7 +640,7 @@ jobs:
             echo "## APK"
             echo ""
 
-            find app/build/outputs \
+            find app/build \
               -type f \
               -name '*.apk' \
               -print \
