@@ -1,0 +1,269 @@
+name: Winlator Ultimate Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_NDK_VERSION: '24.0.8215888'
+  CMAKE_VERSION: '3.22.1'
+  BUILD_TYPE: 'Debug'
+  ABI: 'arm64-v8a'
+
+jobs:
+
+  build:
+    name: Build Winlator ARM64
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      # ============================================================
+      # 1. Checkout Winlator
+      # ============================================================
+
+      - name: Checkout Winlator
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # ============================================================
+      # 2. Update submodules to latest main
+      #
+      # IMPORTANT:
+      # The parent Winlator repository pins submodules to specific
+      # commits. This explicitly moves them to their latest main.
+      # ============================================================
+
+      - name: Update Winlator components
+        shell: bash
+        run: |
+          set -e
+
+          echo "Updating Winlator components..."
+
+          for module in app vortek gladio; do
+            echo ""
+            echo "======================================"
+            echo "Updating $module"
+            echo "======================================"
+
+            git -C "$module" fetch origin main
+            git -C "$module" checkout main
+            git -C "$module" reset --hard origin/main
+
+            echo "Commit:"
+            git -C "$module" rev-parse HEAD
+          done
+
+      # ============================================================
+      # 3. Verify critical Vortek files
+      # ============================================================
+
+      - name: Verify Vortek
+        shell: bash
+        run: |
+          set -e
+
+          echo "Vortek commit:"
+          git -C vortek rev-parse HEAD
+
+          echo ""
+          echo "Searching for vortek_serializer.h..."
+
+          find vortek \
+            -name "vortek_serializer.h" \
+            -print
+
+          if ! find vortek -name "vortek_serializer.h" | grep -q .; then
+            echo "::error::vortek_serializer.h was not found"
+            exit 1
+          fi
+
+      # ============================================================
+      # 4. Java
+      # ============================================================
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      # ============================================================
+      # 5. Android SDK
+      # ============================================================
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ============================================================
+      # 6. Install Android SDK components
+      # ============================================================
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -e
+
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "cmake;${CMAKE_VERSION}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      # ============================================================
+      # 7. Configure NDK
+      # ============================================================
+
+      - name: Configure NDK
+        shell: bash
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      # ============================================================
+      # 8. Make Gradle executable
+      # ============================================================
+
+      - name: Prepare Gradle
+        working-directory: app
+        run: |
+          chmod +x gradlew
+
+      # ============================================================
+      # 9. Show versions
+      # ============================================================
+
+      - name: Build environment
+        working-directory: app
+        shell: bash
+        run: |
+          echo "Java:"
+          java -version
+
+          echo ""
+          echo "Gradle:"
+          ./gradlew --version
+
+          echo ""
+          echo "NDK:"
+          echo "$ANDROID_NDK_HOME"
+
+          echo ""
+          echo "CMake:"
+          cmake --version
+
+      # ============================================================
+      # 10. Clean build
+      # ============================================================
+
+      - name: Clean
+        working-directory: app
+        run: |
+          ./gradlew clean
+
+      # ============================================================
+      # 11. Build ARM64 APK
+      # ============================================================
+
+      - name: Build APK
+        working-directory: app
+        shell: bash
+        run: |
+          set -e
+
+          ./gradlew \
+            assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            --info
+
+      # ============================================================
+      # 12. Locate APK
+      # ============================================================
+
+      - name: Locate APK
+        shell: bash
+        run: |
+          set -e
+
+          echo "Generated APKs:"
+          find app/build/outputs/apk \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      # ============================================================
+      # 13. Rename APK
+      # ============================================================
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p dist
+
+          APK=$(find app/build/outputs/apk \
+            -type f \
+            -name "*.apk" \
+            | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "::error::No APK was generated"
+            exit 1
+          fi
+
+          cp "$APK" \
+            "dist/Winlator-${GITHUB_SHA::8}-arm64.apk"
+
+      # ============================================================
+      # 14. Upload APK
+      # ============================================================
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winlator-${{ github.sha }}-arm64
+          path: dist/*.apk
+          if-no-files-found: error
+
+      # ============================================================
+      # 15. Build information
+      # ============================================================
+
+      - name: Build summary
+        shell: bash
+        run: |
+          {
+            echo "## Winlator Build"
+            echo ""
+            echo "### Main"
+            echo "\`${GITHUB_SHA}\`"
+            echo ""
+            echo "### Components"
+            echo ""
+            echo "| Component | Commit |"
+            echo "|---|---|"
+            echo "| app | \`$(git -C app rev-parse --short HEAD)\` |"
+            echo "| vortek | \`$(git -C vortek rev-parse --short HEAD)\` |"
+            echo "| gladio | \`$(git -C gladio rev-parse --short HEAD)\` |"
+            echo ""
+            echo "### Toolchain"
+            echo ""
+            echo "- Java: ${JAVA_VERSION}"
+            echo "- NDK: ${ANDROID_NDK_VERSION}"
+            echo "- CMake: ${CMAKE_VERSION}"
+            echo "- ABI: ${ABI}"
+          } >> "$GITHUB_STEP_SUMMARY"
