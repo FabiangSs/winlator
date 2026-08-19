@@ -2,19 +2,20 @@ name: Winlator Ultimate Build
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
 
+concurrency:
+  group: winlator-build
+  cancel-in-progress: true
+
 env:
-  JAVA_VERSION: '17'
-  ANDROID_NDK_VERSION: '24.0.8215888'
-  CMAKE_VERSION: '3.22.1'
-  BUILD_TYPE: 'Debug'
-  ABI: 'arm64-v8a'
+  JAVA_VERSION: "17"
+  ANDROID_API: "35"
+  BUILD_TOOLS: "35.0.0"
+  NDK_VERSION: "24.0.8215888"
+  CMAKE_VERSION: "3.22.1"
 
 jobs:
 
@@ -25,70 +26,121 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. Checkout Winlator
+      # 1. CHECKOUT PRINCIPAL + SUBMODULES
       # ============================================================
 
       - name: Checkout Winlator
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
+          submodules: recursive
 
       # ============================================================
-      # 2. Update submodules to latest main
+      # 2. ACTUALIZAR COMPONENTES
       #
-      # IMPORTANT:
-      # The parent Winlator repository pins submodules to specific
-      # commits. This explicitly moves them to their latest main.
+      # Winlator está compuesto por:
+      #   app
+      #   vortek
+      #   gladio
+      #
+      # Se llevan a sus respectivos main.
       # ============================================================
 
       - name: Update Winlator components
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Updating Winlator components..."
+          echo "========================================"
+          echo "UPDATING WINLATOR COMPONENTS"
+          echo "========================================"
 
-          for module in app vortek gladio; do
+          for repo in app vortek gladio; do
+
             echo ""
-            echo "======================================"
-            echo "Updating $module"
-            echo "======================================"
+            echo ">>> Updating $repo"
 
-            git -C "$module" fetch origin main
-            git -C "$module" checkout main
-            git -C "$module" reset --hard origin/main
+            git -C "$repo" fetch --prune origin main
+            git -C "$repo" checkout -B main origin/main
+            git -C "$repo" reset --hard origin/main
 
-            echo "Commit:"
-            git -C "$module" rev-parse HEAD
+            echo ""
+            echo "$repo commit:"
+            git -C "$repo" log -1 \
+              --format="%H%n%ad%n%s" \
+              --date=iso
+
           done
 
       # ============================================================
-      # 3. Verify critical Vortek files
+      # 3. MOSTRAR COMMITS
+      # ============================================================
+
+      - name: Show source revisions
+        shell: bash
+        run: |
+          echo "========================================"
+          echo "SOURCE REVISIONS"
+          echo "========================================"
+
+          echo ""
+          echo "Winlator:"
+          git log -1 --oneline
+
+          echo ""
+          echo "App:"
+          git -C app log -1 --oneline
+
+          echo ""
+          echo "Vortek:"
+          git -C vortek log -1 --oneline
+
+          echo ""
+          echo "Gladio:"
+          git -C gladio log -1 --oneline
+
+      # ============================================================
+      # 4. VERIFICAR VORTEK
       # ============================================================
 
       - name: Verify Vortek
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Vortek commit:"
-          git -C vortek rev-parse HEAD
+          echo "========================================"
+          echo "VORTEK VERIFICATION"
+          echo "========================================"
 
           echo ""
-          echo "Searching for vortek_serializer.h..."
+          echo "Looking for vortek_serializer.h..."
 
-          find vortek \
+          SERIALIZER=$(find vortek \
+            -type f \
             -name "vortek_serializer.h" \
-            -print
+            -print -quit)
 
-          if ! find vortek -name "vortek_serializer.h" | grep -q .; then
-            echo "::error::vortek_serializer.h was not found"
+          if [ -z "$SERIALIZER" ]; then
+            echo "::error::vortek_serializer.h was not found!"
+            echo ""
+            echo "Vortek tree:"
+            find vortek -maxdepth 3 -type f | sort | head -300
             exit 1
           fi
 
+          echo "FOUND:"
+          echo "$SERIALIZER"
+
+          echo ""
+          echo "Looking for vortek.h..."
+
+          find vortek \
+            -type f \
+            -name "vortek.h" \
+            -print
+
       # ============================================================
-      # 4. Java
+      # 5. CONFIGURAR JAVA
       # ============================================================
 
       - name: Setup Java
@@ -96,65 +148,66 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
 
       # ============================================================
-      # 5. Android SDK
+      # 6. ANDROID SDK
       # ============================================================
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       # ============================================================
-      # 6. Install Android SDK components
+      # 7. INSTALAR SDK / NDK / CMAKE
       # ============================================================
 
-      - name: Install Android SDK components
+      - name: Install Android toolchain
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           yes | sdkmanager --licenses >/dev/null || true
 
           sdkmanager \
             "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "cmake;${CMAKE_VERSION}" \
-            "ndk;${ANDROID_NDK_VERSION}"
+            "platforms;android-${ANDROID_API}" \
+            "build-tools;${BUILD_TOOLS}" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}"
 
       # ============================================================
-      # 7. Configure NDK
+      # 8. CONFIGURAR NDK
       # ============================================================
 
       - name: Configure NDK
         shell: bash
         run: |
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" \
+            >> "$GITHUB_ENV"
+
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" \
+            >> "$GITHUB_ENV"
 
       # ============================================================
-      # 8. Make Gradle executable
+      # 9. MOSTRAR TOOLCHAIN
       # ============================================================
 
-      - name: Prepare Gradle
-        working-directory: app
-        run: |
-          chmod +x gradlew
-
-      # ============================================================
-      # 9. Show versions
-      # ============================================================
-
-      - name: Build environment
-        working-directory: app
+      - name: Show build environment
         shell: bash
         run: |
+
+          echo "========================================"
+          echo "BUILD ENVIRONMENT"
+          echo "========================================"
+
+          echo ""
           echo "Java:"
           java -version
 
           echo ""
-          echo "Gradle:"
-          ./gradlew --version
+          echo "Android SDK:"
+          echo "$ANDROID_SDK_ROOT"
 
           echo ""
           echo "NDK:"
@@ -162,108 +215,226 @@ jobs:
 
           echo ""
           echo "CMake:"
-          cmake --version
+          "$ANDROID_SDK_ROOT/cmake/${CMAKE_VERSION}/bin/cmake" \
+            --version
+
+          echo ""
+          echo "SDK packages:"
+          sdkmanager --list_installed | head -100
 
       # ============================================================
-      # 10. Clean build
+      # 10. GRADLE
+      # ============================================================
+
+      - name: Prepare Gradle
+        working-directory: app
+        shell: bash
+        run: |
+          chmod +x gradlew
+
+          echo "Gradle wrapper:"
+          grep distributionUrl \
+            gradle/wrapper/gradle-wrapper.properties || true
+
+          ./gradlew --version
+
+      # ============================================================
+      # 11. LIMPIAR
       # ============================================================
 
       - name: Clean
         working-directory: app
+        shell: bash
         run: |
-          ./gradlew clean
+          ./gradlew clean \
+            --no-daemon \
+            --stacktrace \
+            --console=plain
 
       # ============================================================
-      # 11. Build ARM64 APK
+      # 12. BUILD
+      #
+      # assembleDebug mantiene el comportamiento original
+      # del proyecto y evita introducir una variante inexistente.
       # ============================================================
 
-      - name: Build APK
+      - name: Build Winlator
         working-directory: app
         shell: bash
         run: |
-          set -e
+          set -o pipefail
 
-          ./gradlew \
-            assembleDebug \
+          ./gradlew assembleDebug \
             --no-daemon \
             --stacktrace \
-            --info
+            --info \
+            --console=plain
 
       # ============================================================
-      # 12. Locate APK
+      # 13. DIAGNÓSTICO SIEMPRE
+      # ============================================================
+
+      - name: Build diagnostics
+        if: always()
+        shell: bash
+        run: |
+
+          echo "========================================"
+          echo "APK OUTPUTS"
+          echo "========================================"
+
+          find app/build/outputs \
+            -type f \
+            -print 2>/dev/null || true
+
+          echo ""
+          echo "========================================"
+          echo "NATIVE LIBRARIES"
+          echo "========================================"
+
+          find app/build/intermediates \
+            -type f \
+            \( \
+              -name "*.so" \
+              -o -name "*.aar" \
+            \) \
+            -print 2>/dev/null || true
+
+          echo ""
+          echo "========================================"
+          echo "VORTEK SERIALIZER"
+          echo "========================================"
+
+          find vortek \
+            -type f \
+            -name "vortek_serializer.h" \
+            -print 2>/dev/null || true
+
+          echo ""
+          echo "========================================"
+          echo "GRADLE REPORTS"
+          echo "========================================"
+
+          find app/build \
+            -type f \
+            \( \
+              -name "*.log" \
+              -o -name "*.txt" \
+              \) \
+            -print 2>/dev/null | head -200 || true
+
+      # ============================================================
+      # 14. BUSCAR APK
       # ============================================================
 
       - name: Locate APK
         shell: bash
         run: |
-          set -e
 
-          echo "Generated APKs:"
-          find app/build/outputs/apk \
-            -type f \
-            -name "*.apk" \
-            -print
-
-      # ============================================================
-      # 13. Rename APK
-      # ============================================================
-
-      - name: Prepare artifact
-        shell: bash
-        run: |
-          set -e
-
-          mkdir -p dist
+          set -euo pipefail
 
           APK=$(find app/build/outputs/apk \
             -type f \
             -name "*.apk" \
-            | head -n 1)
+            -print -quit)
 
           if [ -z "$APK" ]; then
-            echo "::error::No APK was generated"
+            echo "::error::No APK was generated!"
             exit 1
           fi
 
-          cp "$APK" \
-            "dist/Winlator-${GITHUB_SHA::8}-arm64.apk"
+          echo "APK:"
+          echo "$APK"
+
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
       # ============================================================
-      # 14. Upload APK
+      # 15. INFORMACIÓN DEL APK
+      # ============================================================
+
+      - name: Inspect APK
+        if: success()
+        shell: bash
+        run: |
+
+          set -euo pipefail
+
+          mkdir -p dist
+
+          cp "$APK_PATH" \
+            "dist/Winlator-Ultimate-ARM64.apk"
+
+          echo "APK size:"
+          du -h "dist/Winlator-Ultimate-ARM64.apk"
+
+          echo ""
+          echo "SHA256:"
+          sha256sum \
+            "dist/Winlator-Ultimate-ARM64.apk"
+
+      # ============================================================
+      # 16. SUBIR APK
       # ============================================================
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-${{ github.sha }}-arm64
-          path: dist/*.apk
+          name: Winlator-Ultimate-ARM64
+          path: dist/Winlator-Ultimate-ARM64.apk
           if-no-files-found: error
+          retention-days: 30
 
       # ============================================================
-      # 15. Build information
+      # 17. SUBIR DIAGNÓSTICOS SI FALLA
+      # ============================================================
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winlator-Build-Diagnostics
+          path: |
+            app/build/outputs/**
+            app/build/intermediates/**
+            app/build/reports/**
+            app/build/compose_metrics/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ============================================================
+      # 18. GITHUB SUMMARY
       # ============================================================
 
       - name: Build summary
+        if: always()
         shell: bash
         run: |
+
           {
-            echo "## Winlator Build"
+            echo "# 🚀 Winlator Ultimate Build"
             echo ""
-            echo "### Main"
-            echo "\`${GITHUB_SHA}\`"
-            echo ""
-            echo "### Components"
+            echo "## Components"
             echo ""
             echo "| Component | Commit |"
             echo "|---|---|"
-            echo "| app | \`$(git -C app rev-parse --short HEAD)\` |"
-            echo "| vortek | \`$(git -C vortek rev-parse --short HEAD)\` |"
-            echo "| gladio | \`$(git -C gladio rev-parse --short HEAD)\` |"
+            echo "| Winlator | \`$(git rev-parse --short HEAD)\` |"
+            echo "| App | \`$(git -C app rev-parse --short HEAD)\` |"
+            echo "| Vortek | \`$(git -C vortek rev-parse --short HEAD)\` |"
+            echo "| Gladio | \`$(git -C gladio rev-parse --short HEAD)\` |"
             echo ""
-            echo "### Toolchain"
+            echo "## Toolchain"
             echo ""
             echo "- Java: ${JAVA_VERSION}"
-            echo "- NDK: ${ANDROID_NDK_VERSION}"
+            echo "- Android API: ${ANDROID_API}"
+            echo "- Build Tools: ${BUILD_TOOLS}"
+            echo "- NDK: ${NDK_VERSION}"
             echo "- CMake: ${CMAKE_VERSION}"
-            echo "- ABI: ${ABI}"
+            echo "- ABI: ARM64"
+            echo ""
+            echo "## Build status"
+            echo ""
+            echo "Workflow: ${GITHUB_WORKFLOW}"
+            echo "Run: ${GITHUB_RUN_NUMBER}"
+            echo "Commit: ${GITHUB_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
