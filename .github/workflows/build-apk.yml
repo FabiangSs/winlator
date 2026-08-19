@@ -100,37 +100,44 @@ jobs:
 
 
       # ============================================================
-      # 3.1. TRY PATCHING OR FALLBACK TO X11 HEADERS
+      # 3.1. PATCH VORTEK CMAKE INCLUDE PATHS AND PLATFORM FLAGS
       # ============================================================
 
-      - name: Apply Vulkan Patch or Install X11 Fallback
+      - name: Patch Vortek CMake Include Paths & Platform Flags
         shell: bash
         run: |
           set -euo pipefail
 
           echo "======================================"
-          echo "TRYING OPTION 1: PATCH VORTEK CMAKE"
+          echo "FIXING VORTEK INCLUDE PATHS & FLAGS"
           echo "======================================"
 
-          # Aplicar parche cambiando XLIB por ANDROID
-          find app/app/src/main/cpp/vortekrenderer -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/VK_USE_PLATFORM_XLIB_KHR/VK_USE_PLATFORM_ANDROID_KHR/g' {} + || true
+          VORTEK_DIR="app/app/src/main/cpp/vortekrenderer"
 
-          # Verificar si la solución 1 resuelve el requerimiento de headers
-          NDK_SYSROOT="$ANDROID_HOME/ndk/24.0.8215888/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          
-          echo "Verificando compatibilidad de cabeceras..."
-          if $ANDROID_HOME/ndk/24.0.8215888/toolchains/llvm/prebuilt/linux-x86_64/bin/clang \
-            --target=aarch64-none-linux-android26 \
-            --sysroot="$NDK_SYSROOT" \
-            -DVK_USE_PLATFORM_ANDROID_KHR \
-            -E -xc - < /dev/null > /dev/null 2>&1; then
-            echo "Opción 1 exitosa: El parche de Android se aplico correctamente."
+          # 1. Cambiar plataforma XLIB por ANDROID
+          find "$VORTEK_DIR" -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/VK_USE_PLATFORM_XLIB_KHR/VK_USE_PLATFORM_ANDROID_KHR/g' {} + || true
+
+          # 2. Agregar todos los subdirectorios de include/ a CMake para solucionar 'resource_memory.h' file not found
+          CMAKELISTS="$VORTEK_DIR/CMakeLists.txt"
+
+          if [ -f "$CMAKELISTS" ]; then
+            echo "Inyectando rutas de include en $CMAKELISTS..."
+            
+            # Crear bloque de include_directories con todas las subcarpetas encontradas
+            EXTRA_INCLUDES="include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/include \${CMAKE_CURRENT_SOURCE_DIR}/src)"
+            
+            for d in $(find "$VORTEK_DIR" -type d); do
+              REL_PATH="${d#$VORTEK_DIR/}"
+              if [ -n "$REL_PATH" ] && [ "$REL_PATH" != "." ]; then
+                EXTRA_INCLUDES="$EXTRA_INCLUDES\ninclude_directories(\${CMAKE_CURRENT_SOURCE_DIR}/$REL_PATH)"
+              fi
+            done
+
+            # Escribir las rutas al principio de CMakeLists.txt
+            echo -e "$EXTRA_INCLUDES\n$(cat $CMAKELISTS)" > "$CMAKELISTS"
+            echo "Rutas de cabeceras inyectadas correctamente."
           else
-            echo "--------------------------------------"
-            echo "FALLBACK TO OPTION 2: INSTALLING X11 HEADERS"
-            echo "--------------------------------------"
-            sudo apt-get update
-            sudo apt-get install -y libx11-dev libxext-dev
+            echo "::warning::No se encontro CMakeLists.txt directo en vortekrenderer para parchear includes."
           fi
 
 
