@@ -93,7 +93,7 @@ jobs:
           echo "Clonando Vortek..."
           git clone https://github.com/brunodev85/vortek.git "$TARGET_CPP_DIR/vortekrenderer"
 
-          # Si requieres tener copias también en la raíz para logs/diagnósticos
+          # Copias en la raíz para verificación
           rm -rf vortek gladio
           cp -r "$TARGET_CPP_DIR/vortekrenderer" vortek
           cp -r "$TARGET_CPP_DIR/gladio" gladio
@@ -117,14 +117,23 @@ jobs:
           # 1. Corregir flag no reconocido en Clang NDK
           find app/app/src/main/cpp/ -name "CMakeLists.txt" -exec sed -i 's/-Wno-discarded-qualifiers/-Wno-ignored-qualifiers/g' {} + || true
 
-          # 2. Generar CMakeLists.txt asegurando la sangria correcta requerida por YAML
+          # 2. Inyectar headers estándar en string_utils.h para quitar warnings de memcpy, strdup, etc.
+          STRING_UTILS="app/app/src/main/cpp/winlator/include/string_utils.h"
+          if [ -f "$STRING_UTILS" ]; then
+            sed -i '1i #include <string.h>\n#include <stdlib.h>' "$STRING_UTILS" || true
+          fi
+
+          # 3. Generar CMakeLists.txt mapeando dinámicamente todas las subcarpetas con headers (.h)
           cat << 'EOF' > "$VORTEK_DIR/CMakeLists.txt"
           cmake_minimum_required(VERSION 3.22.1)
           project(vulkan_vortek C)
 
-          file(GLOB_RECURSE VORTEK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+          file(GLOB_RECURSE VORTEK_HEADERS 
+              "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+              "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
+          )
+          
           set(VORTEK_INCLUDE_DIRS "")
-
           foreach(HEADER_FILE ${VORTEK_HEADERS})
               if(NOT HEADER_FILE MATCHES "/\\.")
                   get_filename_component(HEADER_DIR ${HEADER_FILE} DIRECTORY)
@@ -136,7 +145,7 @@ jobs:
               list(REMOVE_DUPLICATES VORTEK_INCLUDE_DIRS)
           endif()
 
-          file(GLOB_RECURSE VORTEK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
+          file(GLOB_RECURSE VORTEK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
 
           add_library(vulkan_vortek SHARED
               ${VORTEK_SOURCES}
@@ -144,8 +153,6 @@ jobs:
 
           target_include_directories(vulkan_vortek PRIVATE
               ${CMAKE_CURRENT_SOURCE_DIR}
-              ${CMAKE_CURRENT_SOURCE_DIR}/include
-              ${CMAKE_CURRENT_SOURCE_DIR}/src
               ${VORTEK_INCLUDE_DIRS}
           )
 
@@ -163,7 +170,7 @@ jobs:
           )
           EOF
 
-          echo "CMakeLists.txt de Vortek reestructurado con éxito."
+          echo "CMakeLists.txt de Vortek reestructurado."
 
 
       # ============================================================
