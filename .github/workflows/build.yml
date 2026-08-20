@@ -83,7 +83,7 @@ jobs:
 
           TARGET_CPP_DIR="app/app/src/main/cpp"
 
-          # Limpiar carpetas objetivo para prevenir conflictos de archivos faltantes
+          # Limpiar carpetas objetivo para prevenir conflictos
           rm -rf "$TARGET_CPP_DIR/gladio"
           rm -rf "$TARGET_CPP_DIR/vortekrenderer"
 
@@ -93,7 +93,6 @@ jobs:
           echo "Clonando Vortek..."
           git clone https://github.com/brunodev85/vortek.git "$TARGET_CPP_DIR/vortekrenderer"
 
-          # Si requieres tener copias también en la raíz para logs/diagnósticos
           rm -rf vortek gladio
           cp -r "$TARGET_CPP_DIR/vortekrenderer" vortek
           cp -r "$TARGET_CPP_DIR/gladio" gladio
@@ -117,21 +116,17 @@ jobs:
           # 1. Cambiar plataforma XLIB por ANDROID
           find "$VORTEK_DIR" -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/VK_USE_PLATFORM_XLIB_KHR/VK_USE_PLATFORM_ANDROID_KHR/g' {} + || true
 
-          # 2. Agregar carpetas de cabeceras legítimas sin incluir basura de .git
+          # 2. Agregar carpetas de cabeceras en CMakeLists
           CMAKELISTS="$VORTEK_DIR/CMakeLists.txt"
 
           if [ -f "$CMAKELISTS" ]; then
             echo "Inyectando rutas de include en $CMAKELISTS..."
             
-            # Forzar la inclusión explícita de subcarpetas comunes de headers
-            cat << 'EOF' > /tmp/vortek_includes.txt
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/vortek)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/vortek)
-EOF
+            echo "include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/include)" > /tmp/vortek_includes.txt
+            echo "include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/include/vortek)" >> /tmp/vortek_includes.txt
+            echo "include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/src)" >> /tmp/vortek_includes.txt
+            echo "include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/src/vortek)" >> /tmp/vortek_includes.txt
 
-            # Insertar las rutas al inicio del CMakeLists.txt del módulo
             cat /tmp/vortek_includes.txt "$CMAKELISTS" > "$CMAKELISTS.tmp" && mv "$CMAKELISTS.tmp" "$CMAKELISTS"
             echo "Rutas de cabeceras inyectadas correctamente."
           else
