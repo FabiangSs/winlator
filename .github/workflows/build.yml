@@ -35,7 +35,7 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. CHECKOUT
+      # 1. CHECKOUT (Descarga automáticamente los submódulos exactos)
       # ============================================================
 
       - name: Checkout Winlator
@@ -47,7 +47,7 @@ jobs:
 
 
       # ============================================================
-      # 2. SHOW REPOSITORY STATE
+      # 2. SHOW REPOSITORY STATE & VERIFY SUBMODULES
       # ============================================================
 
       - name: Show repository state
@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
 
           echo "======================================"
-          echo "WINLATOR"
+          echo "WINLATOR REPOSITORY & SUBMODULES"
           echo "======================================"
 
           echo ""
@@ -67,149 +67,13 @@ jobs:
           echo "Repository status:"
           git status --short --branch
 
-
-      # ============================================================
-      # 3. CLONE & SETUP C++ COMPONENTS (GLADIO & VORTEK)
-      # ============================================================
-
-      - name: Clone C++ Dependencies directly into app
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "CLONING NATIVE DEPENDENCIES"
-          echo "======================================"
-
-          TARGET_CPP_DIR="app/app/src/main/cpp"
-
-          # Limpiar carpetas objetivo para prevenir conflictos de archivos faltantes
-          rm -rf "$TARGET_CPP_DIR/gladio"
-          rm -rf "$TARGET_CPP_DIR/vortekrenderer"
-
-          echo "Clonando Gladio..."
-          git clone https://github.com/brunodev85/gladio.git "$TARGET_CPP_DIR/gladio"
-
-          echo "Clonando Vortek..."
-          git clone https://github.com/brunodev85/vortek.git "$TARGET_CPP_DIR/vortekrenderer"
-
-          # Copias en la raíz para verificación
-          rm -rf vortek gladio
-          cp -r "$TARGET_CPP_DIR/vortekrenderer" vortek
-          cp -r "$TARGET_CPP_DIR/gladio" gladio
+          echo ""
+          echo "Submodules status:"
+          git submodule status
 
 
       # ============================================================
-      # 3.1. PATCH VORTEK CMAKE INCLUDE PATHS AND PLATFORM FLAGS
-      # ============================================================
-
-      - name: Patch Vortek CMake Include Paths & Platform Flags
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "FIXING VORTEK INCLUDE PATHS & FLAGS"
-          echo "======================================"
-
-          VORTEK_DIR="app/app/src/main/cpp/vortekrenderer"
-
-          # 1. Ignorar warnings de qualifiers y asignaciones const que detienen Clang en NDK
-          find app/app/src/main/cpp/ -name "CMakeLists.txt" -exec sed -i 's/-Wno-discarded-qualifiers/-Wno-ignored-qualifiers -Wno-incompatible-pointer-types-discards-qualifiers/g' {} + || true
-
-          # 2. Inyectar headers estándar en string_utils.h para quitar warnings de memcpy, strdup, etc.
-          STRING_UTILS="app/app/src/main/cpp/winlator/include/string_utils.h"
-          if [ -f "$STRING_UTILS" ]; then
-            sed -i '1i #include <string.h>\n#include <stdlib.h>' "$STRING_UTILS" || true
-          fi
-
-          # 3. Generar CMakeLists.txt asegurando la inclusión explícita de winlator/include
-          cat << 'EOF' > "$VORTEK_DIR/CMakeLists.txt"
-          cmake_minimum_required(VERSION 3.22.1)
-          project(vulkan_vortek C)
-
-          file(GLOB_RECURSE VORTEK_HEADERS 
-              "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-              "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
-          )
-          
-          set(VORTEK_INCLUDE_DIRS "")
-          foreach(HEADER_FILE ${VORTEK_HEADERS})
-              if(NOT HEADER_FILE MATCHES "/\\.")
-                  get_filename_component(HEADER_DIR ${HEADER_FILE} DIRECTORY)
-                  list(APPEND VORTEK_INCLUDE_DIRS ${HEADER_DIR})
-              endif()
-          endforeach()
-
-          if(VORTEK_INCLUDE_DIRS)
-              list(REMOVE_DUPLICATES VORTEK_INCLUDE_DIRS)
-          endif()
-
-          file(GLOB_RECURSE VORTEK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
-
-          add_library(vulkan_vortek SHARED
-              ${VORTEK_SOURCES}
-          )
-
-          # Incluir carpetas locales de Vortek Y explícitamente winlator/include para hallar resource_memory.h
-          target_include_directories(vulkan_vortek PRIVATE
-              ${CMAKE_CURRENT_SOURCE_DIR}
-              ${VORTEK_INCLUDE_DIRS}
-              ${CMAKE_CURRENT_SOURCE_DIR}/include
-              ${CMAKE_CURRENT_SOURCE_DIR}/src
-              ${CMAKE_CURRENT_SOURCE_DIR}/../winlator/include
-          )
-
-          target_compile_definitions(vulkan_vortek PRIVATE
-              ANDROID
-              VK_USE_PLATFORM_ANDROID_KHR
-          )
-
-          set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall -Wno-ignored-qualifiers -Wno-incompatible-pointer-types-discards-qualifiers -fexceptions -fPIC")
-
-          target_link_libraries(vulkan_vortek
-              android
-              log
-              vulkan
-          )
-          EOF
-
-          echo "CMakeLists.txt de Vortek reestructurado correctamente con include a Winlator."
-
-
-      # ============================================================
-      # 4. VERIFY COMPONENTS
-      # ============================================================
-
-      - name: Verify Winlator components
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "COMPONENTS"
-          echo "======================================"
-
-          for repo in app/app/src/main/cpp/vortekrenderer app/app/src/main/cpp/gladio; do
-
-            echo ""
-            echo "--------------------------------------"
-            echo "$repo"
-            echo "--------------------------------------"
-
-            test -d "$repo"
-
-            echo "Commit:"
-            git -C "$repo" rev-parse HEAD
-
-            echo "Remote:"
-            git -C "$repo" remote -v || true
-
-          done
-
-
-      # ============================================================
-      # 5. VERIFY VORTEK SERIALIZER
+      # 3. VERIFY VORTEK SERIALIZER & HEADERS
       # ============================================================
 
       - name: Verify Vortek serializer
@@ -221,14 +85,14 @@ jobs:
           echo "VORTEK SERIALIZER"
           echo "======================================"
 
-          HEADER="$(find app/app/src/main/cpp/vortekrenderer -type f -name 'vortek_serializer.h' -print -quit 2>/dev/null || echo '')"
+          HEADER="$(find app/app/src/main/cpp -type f -name 'vortek_serializer.h' -print -quit 2>/dev/null || echo '')"
 
           if [ -z "$HEADER" ]; then
             echo "::error::vortek_serializer.h was not found in native path"
 
             echo ""
             echo "Vortek directory structure:"
-            find app/app/src/main/cpp/vortekrenderer -type f -name '*.h' -o -name '*.hpp' 2>/dev/null | head -50 || echo "No headers found"
+            find app/app/src/main/cpp -type f -name '*.h' -o -name '*.hpp' 2>/dev/null | head -50 || echo "No headers found"
 
             exit 1
           fi
@@ -242,7 +106,7 @@ jobs:
 
 
       # ============================================================
-      # 6. INSPECT VORTEK REFERENCES
+      # 4. INSPECT VORTEK REFERENCES
       # ============================================================
 
       - name: Inspect Vortek integration
@@ -269,7 +133,7 @@ jobs:
           echo ""
           echo "Vortek CMake files:"
 
-          find app/app/src/main/cpp/vortekrenderer \
+          find app/app/src/main/cpp \
             -type f \
             \( \
               -name 'CMakeLists.txt' \
@@ -281,7 +145,7 @@ jobs:
 
 
       # ============================================================
-      # 7. JAVA 17
+      # 5. JAVA 17
       # ============================================================
 
       - name: Setup Java 17
@@ -293,7 +157,7 @@ jobs:
 
 
       # ============================================================
-      # 8. ANDROID SDK
+      # 6. ANDROID SDK
       # ============================================================
 
       - name: Setup Android SDK
@@ -301,7 +165,7 @@ jobs:
 
 
       # ============================================================
-      # 9. INSTALL ANDROID COMPONENTS
+      # 7. INSTALL ANDROID COMPONENTS
       # ============================================================
 
       - name: Install Android toolchain
@@ -324,7 +188,7 @@ jobs:
 
 
       # ============================================================
-      # 10. CONFIGURE NDK
+      # 8. CONFIGURE NDK
       # ============================================================
 
       - name: Configure Android environment
@@ -355,7 +219,7 @@ jobs:
 
 
       # ============================================================
-      # 11. VERIFY TOOLCHAIN
+      # 9. VERIFY TOOLCHAIN
       # ============================================================
 
       - name: Verify build environment
@@ -384,7 +248,7 @@ jobs:
 
 
       # ============================================================
-      # 12. GRADLE TASKS
+      # 10. GRADLE TASKS
       # ============================================================
 
       - name: Verify Gradle project
@@ -403,7 +267,7 @@ jobs:
 
 
       # ============================================================
-      # 13. INSPECT BUILD FILES
+      # 11. INSPECT BUILD FILES
       # ============================================================
 
       - name: Inspect native build configuration
@@ -429,7 +293,7 @@ jobs:
 
 
       # ============================================================
-      # 14. CLEAN
+      # 12. CLEAN
       # ============================================================
 
       - name: Clean Gradle
@@ -446,7 +310,7 @@ jobs:
 
 
       # ============================================================
-      # 15. BUILD WINLATOR
+      # 13. BUILD WINLATOR
       # ============================================================
 
       - name: Build Winlator ARM64
@@ -468,7 +332,7 @@ jobs:
 
 
       # ============================================================
-      # 16. LOCATE APK
+      # 14. LOCATE APK
       # ============================================================
 
       - name: Locate APK
@@ -489,7 +353,7 @@ jobs:
 
 
       # ============================================================
-      # 17. PREPARE APK
+      # 15. PREPARE APK
       # ============================================================
 
       - name: Prepare APK
@@ -516,7 +380,7 @@ jobs:
 
 
       # ============================================================
-      # 18. UPLOAD APK
+      # 16. UPLOAD APK
       # ============================================================
 
       - name: Upload Winlator APK
@@ -530,7 +394,7 @@ jobs:
 
 
       # ============================================================
-      # 19. COLLECT DIAGNOSTICS
+      # 17. COLLECT DIAGNOSTICS
       # ============================================================
 
       - name: Collect diagnostics
@@ -544,10 +408,9 @@ jobs:
           echo "Collecting diagnostics..."
 
           git rev-parse HEAD > diagnostics/root-commit.txt
-          git -C app/app/src/main/cpp/vortekrenderer rev-parse HEAD > diagnostics/vortek-commit.txt || true
-          git -C app/app/src/main/cpp/gladio rev-parse HEAD > diagnostics/gladio-commit.txt || true
+          git submodule status > diagnostics/submodules.txt || true
 
-          find app/app/src/main/cpp/vortekrenderer \
+          find app/app/src/main/cpp \
             -type f \
             -name 'vortek_serializer.h' \
             -print \
@@ -557,7 +420,7 @@ jobs:
 
 
       # ============================================================
-      # 20. UPLOAD DIAGNOSTICS
+      # 18. UPLOAD DIAGNOSTICS
       # ============================================================
 
       - name: Upload build diagnostics
@@ -574,7 +437,7 @@ jobs:
 
 
       # ============================================================
-      # 21. SUMMARY
+      # 19. SUMMARY
       # ============================================================
 
       - name: Winlator build summary
@@ -594,7 +457,7 @@ jobs:
             echo ""
             echo "## Vortek Serializer Status"
 
-            if find app/app/src/main/cpp/vortekrenderer -type f -name 'vortek_serializer.h' | grep -q .; then
+            if find app/app/src/main/cpp -type f -name 'vortek_serializer.h' | grep -q .; then
               echo "FOUND"
             else
               echo "NOT FOUND"
