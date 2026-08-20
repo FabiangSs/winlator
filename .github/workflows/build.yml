@@ -117,53 +117,52 @@ jobs:
           # 1. Corregir flag no reconocido en Clang NDK
           find app/app/src/main/cpp/ -name "CMakeLists.txt" -exec sed -i 's/-Wno-discarded-qualifiers/-Wno-ignored-qualifiers/g' {} + || true
 
-          # 2. Reemplazar CMakeLists.txt usando archivo temporal para proteger la sintaxis YAML
-          cat << 'EOF' > /tmp/CMakeLists_Vortek.txt
-cmake_minimum_required(VERSION 3.22.1)
-project(vulkan_vortek C)
+          # 2. Generar CMakeLists.txt asegurando la sangria correcta requerida por YAML
+          cat << 'EOF' > "$VORTEK_DIR/CMakeLists.txt"
+          cmake_minimum_required(VERSION 3.22.1)
+          project(vulkan_vortek C)
 
-file(GLOB_RECURSE VORTEK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
-set(VORTEK_INCLUDE_DIRS "")
+          file(GLOB_RECURSE VORTEK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+          set(VORTEK_INCLUDE_DIRS "")
 
-foreach(HEADER_FILE ${VORTEK_HEADERS})
-    if(NOT HEADER_FILE MATCHES "/\\.")
-        get_filename_component(HEADER_DIR ${HEADER_FILE} DIRECTORY)
-        list(APPEND VORTEK_INCLUDE_DIRS ${HEADER_DIR})
-    endif()
-endforeach()
+          foreach(HEADER_FILE ${VORTEK_HEADERS})
+              if(NOT HEADER_FILE MATCHES "/\\.")
+                  get_filename_component(HEADER_DIR ${HEADER_FILE} DIRECTORY)
+                  list(APPEND VORTEK_INCLUDE_DIRS ${HEADER_DIR})
+              endif()
+          endforeach()
 
-if(VORTEK_INCLUDE_DIRS)
-    list(REMOVE_DUPLICATES VORTEK_INCLUDE_DIRS)
-endif()
+          if(VORTEK_INCLUDE_DIRS)
+              list(REMOVE_DUPLICATES VORTEK_INCLUDE_DIRS)
+          endif()
 
-file(GLOB_RECURSE VORTEK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
+          file(GLOB_RECURSE VORTEK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
 
-add_library(vulkan_vortek SHARED
-    ${VORTEK_SOURCES}
-)
+          add_library(vulkan_vortek SHARED
+              ${VORTEK_SOURCES}
+          )
 
-target_include_directories(vulkan_vortek PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${VORTEK_INCLUDE_DIRS}
-)
+          target_include_directories(vulkan_vortek PRIVATE
+              ${CMAKE_CURRENT_SOURCE_DIR}
+              ${CMAKE_CURRENT_SOURCE_DIR}/include
+              ${CMAKE_CURRENT_SOURCE_DIR}/src
+              ${VORTEK_INCLUDE_DIRS}
+          )
 
-target_compile_definitions(vulkan_vortek PRIVATE
-    ANDROID
-    VK_USE_PLATFORM_ANDROID_KHR
-)
+          target_compile_definitions(vulkan_vortek PRIVATE
+              ANDROID
+              VK_USE_PLATFORM_ANDROID_KHR
+          )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall -Wno-ignored-qualifiers -fexceptions -fPIC")
+          set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall -Wno-ignored-qualifiers -fexceptions -fPIC")
 
-target_link_libraries(vulkan_vortek
-    android
-    log
-    vulkan
-)
-EOF
+          target_link_libraries(vulkan_vortek
+              android
+              log
+              vulkan
+          )
+          EOF
 
-          cp /tmp/CMakeLists_Vortek.txt "$VORTEK_DIR/CMakeLists.txt"
           echo "CMakeLists.txt de Vortek reestructurado con éxito."
 
 
