@@ -114,8 +114,8 @@ jobs:
 
           VORTEK_DIR="app/app/src/main/cpp/vortekrenderer"
 
-          # 1. Corregir flag no reconocido en Clang NDK
-          find app/app/src/main/cpp/ -name "CMakeLists.txt" -exec sed -i 's/-Wno-discarded-qualifiers/-Wno-ignored-qualifiers/g' {} + || true
+          # 1. Ignorar warnings de qualifiers y asignaciones const que detienen Clang en NDK
+          find app/app/src/main/cpp/ -name "CMakeLists.txt" -exec sed -i 's/-Wno-discarded-qualifiers/-Wno-ignored-qualifiers -Wno-incompatible-pointer-types-discards-qualifiers/g' {} + || true
 
           # 2. Inyectar headers estándar en string_utils.h para quitar warnings de memcpy, strdup, etc.
           STRING_UTILS="app/app/src/main/cpp/winlator/include/string_utils.h"
@@ -123,7 +123,7 @@ jobs:
             sed -i '1i #include <string.h>\n#include <stdlib.h>' "$STRING_UTILS" || true
           fi
 
-          # 3. Generar CMakeLists.txt con el mapeo de directorios e inclusión de la ruta de Winlator
+          # 3. Generar CMakeLists.txt asegurando la inclusión explícita de winlator/include
           cat << 'EOF' > "$VORTEK_DIR/CMakeLists.txt"
           cmake_minimum_required(VERSION 3.22.1)
           project(vulkan_vortek C)
@@ -151,9 +151,12 @@ jobs:
               ${VORTEK_SOURCES}
           )
 
+          # Incluir carpetas locales de Vortek Y explícitamente winlator/include para hallar resource_memory.h
           target_include_directories(vulkan_vortek PRIVATE
               ${CMAKE_CURRENT_SOURCE_DIR}
               ${VORTEK_INCLUDE_DIRS}
+              ${CMAKE_CURRENT_SOURCE_DIR}/include
+              ${CMAKE_CURRENT_SOURCE_DIR}/src
               ${CMAKE_CURRENT_SOURCE_DIR}/../winlator/include
           )
 
@@ -162,7 +165,7 @@ jobs:
               VK_USE_PLATFORM_ANDROID_KHR
           )
 
-          set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall -Wno-ignored-qualifiers -fexceptions -fPIC")
+          set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall -Wno-ignored-qualifiers -Wno-incompatible-pointer-types-discards-qualifiers -fexceptions -fPIC")
 
           target_link_libraries(vulkan_vortek
               android
@@ -171,7 +174,7 @@ jobs:
           )
           EOF
 
-          echo "CMakeLists.txt de Vortek reestructurado con include a Winlator."
+          echo "CMakeLists.txt de Vortek reestructurado correctamente con include a Winlator."
 
 
       # ============================================================
