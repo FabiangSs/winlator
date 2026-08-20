@@ -85,14 +85,14 @@ jobs:
           echo "VORTEK SERIALIZER"
           echo "======================================"
 
-          HEADER="$(find app/app/src/main/cpp -type f -name 'vortek_serializer.h' -print -quit 2>/dev/null || echo '')"
+          HEADER="$(find . -type f -name 'vortek_serializer.h' -print -quit 2>/dev/null || echo '')"
 
           if [ -z "$HEADER" ]; then
             echo "::error::vortek_serializer.h was not found in native path"
 
             echo ""
             echo "Vortek directory structure:"
-            find app/app/src/main/cpp -type f -name '*.h' -o -name '*.hpp' 2>/dev/null | head -50 || echo "No headers found"
+            find . -type f \( -name '*.h' -o -name '*.hpp' \) 2>/dev/null | head -50 || echo "No headers found"
 
             exit 1
           fi
@@ -125,7 +125,7 @@ jobs:
             --exclude-dir=.gradle \
             --exclude-dir=build \
             'vortek_serializer' \
-            app \
+            . \
             2>/dev/null \
             | head -300 \
             | tee diagnostics/vortek-references.txt || true
@@ -133,7 +133,7 @@ jobs:
           echo ""
           echo "Vortek CMake files:"
 
-          find app/app/src/main/cpp \
+          find . \
             -type f \
             \( \
               -name 'CMakeLists.txt' \
@@ -345,11 +345,7 @@ jobs:
           echo "GENERATED APK"
           echo "======================================"
 
-          find app/build \
-            -type f \
-            -name '*.apk' \
-            -print \
-            -exec ls -lh {} \;
+          find . -type f -name '*.apk' -print -exec ls -lh {} \;
 
 
       # ============================================================
@@ -364,7 +360,7 @@ jobs:
 
           mkdir -p dist
 
-          APK="$(find app/build -type f -name '*.apk' -print | head -n 1)"
+          APK="$(find . -type f -name '*.apk' -print | head -n 1)"
 
           if [ -z "$APK" ]; then
             echo "::error::APK was not generated"
@@ -410,11 +406,7 @@ jobs:
           git rev-parse HEAD > diagnostics/root-commit.txt
           git submodule status > diagnostics/submodules.txt || true
 
-          find app/app/src/main/cpp \
-            -type f \
-            -name 'vortek_serializer.h' \
-            -print \
-            > diagnostics/vortek-header.txt 2>&1
+          find . -type f -name 'vortek_serializer.h' -print > diagnostics/vortek-header.txt 2>&1
 
           echo "Diagnostics complete."
 
@@ -430,8 +422,8 @@ jobs:
           name: Winlator-build-diagnostics
           path: |
             diagnostics/**
-            app/build/outputs/**
-            app/build/reports/**
+            **/build/outputs/**
+            **/build/reports/**
           if-no-files-found: warn
           retention-days: 14
 
@@ -457,7 +449,7 @@ jobs:
             echo ""
             echo "## Vortek Serializer Status"
 
-            if find app/app/src/main/cpp -type f -name 'vortek_serializer.h' | grep -q .; then
+            if find . -type f -name 'vortek_serializer.h' | grep -q .; then
               echo "FOUND"
             else
               echo "NOT FOUND"
