@@ -117,29 +117,25 @@ jobs:
           # 1. Cambiar plataforma XLIB por ANDROID
           find "$VORTEK_DIR" -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/VK_USE_PLATFORM_XLIB_KHR/VK_USE_PLATFORM_ANDROID_KHR/g' {} + || true
 
-          # 2. Localizar exactamente la carpeta que contiene resource_memory.h
-          HEADER_FILE=$(find "$VORTEK_DIR" -type f -name "resource_memory.h" | head -n 1)
-          
-          if [ -n "$HEADER_FILE" ]; then
-            HEADER_DIR=$(dirname "$HEADER_FILE")
-            echo "Encontrado resource_memory.h en: $HEADER_DIR"
+          # 2. Agregar carpetas de cabeceras legítimas sin incluir basura de .git
+          CMAKELISTS="$VORTEK_DIR/CMakeLists.txt"
+
+          if [ -f "$CMAKELISTS" ]; then
+            echo "Inyectando rutas de include en $CMAKELISTS..."
             
-            # Obtener la ruta relativa respecto a VORTEK_DIR
-            REL_DIR="${HEADER_DIR#$VORTEK_DIR/}"
-            
-            CMAKELISTS="$VORTEK_DIR/CMakeLists.txt"
-            if [ -f "$CMAKELISTS" ]; then
-              echo "Inyectando rutas precisas en $CMAKELISTS..."
-              cat << EOF > /tmp/vortek_includes.txt
-include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/src)
-include_directories(\${CMAKE_CURRENT_SOURCE_DIR}/$REL_DIR)
+            # Forzar la inclusión explícita de subcarpetas comunes de headers
+            cat << 'EOF' > /tmp/vortek_includes.txt
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/vortek)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/vortek)
 EOF
-              cat /tmp/vortek_includes.txt "$CMAKELISTS" > "$CMAKELISTS.tmp" && mv "$CMAKELISTS.tmp" "$CMAKELISTS"
-              echo "Inyección finalizada con éxito."
-            fi
+
+            # Insertar las rutas al inicio del CMakeLists.txt del módulo
+            cat /tmp/vortek_includes.txt "$CMAKELISTS" > "$CMAKELISTS.tmp" && mv "$CMAKELISTS.tmp" "$CMAKELISTS"
+            echo "Rutas de cabeceras inyectadas correctamente."
           else
-            echo "::warning::No se encontró resource_memory.h en el repositorio de Vortek."
+            echo "::warning::No se encontro CMakeLists.txt directo en vortekrenderer para parchear includes."
           fi
 
 
