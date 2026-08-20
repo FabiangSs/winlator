@@ -114,32 +114,57 @@ jobs:
 
           VORTEK_DIR="app/app/src/main/cpp/vortekrenderer"
 
-          # 1. Cambiar plataforma XLIB por ANDROID
-          find "$VORTEK_DIR" -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/VK_USE_PLATFORM_XLIB_KHR/VK_USE_PLATFORM_ANDROID_KHR/g' {} + || true
+          # 1. Corregir flag no reconocido en Clang NDK
+          find app/app/src/main/cpp/ -name "CMakeLists.txt" -exec sed -i 's/-Wno-discarded-qualifiers/-Wno-ignored-qualifiers/g' {} + || true
 
-          # 2. Inyectar TODAS las subcarpetas del repositorio en CMake (excluyendo .git)
-          CMAKELISTS="$VORTEK_DIR/CMakeLists.txt"
+          # 2. Generar un CMakeLists.txt limpio para Vortek omitiendo carpetas ocultas (.git)
+          cat << 'EOF' > "$VORTEK_DIR/CMakeLists.txt"
+cmake_minimum_required(VERSION 3.22.1)
+project(vulkan_vortek C)
 
-          if [ -f "$CMAKELISTS" ]; then
-            echo "Escaneando subcarpetas para inyectar include_directories..."
-            
-            # Limpiar archivo temporal si existe
-            rm -f /tmp/vortek_includes.txt
+# Buscar recursivamente directorios con archivos .h excluyendo directorios ocultos (.git)
+file(GLOB_RECURSE VORTEK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+set(VORTEK_INCLUDE_DIRS "")
 
-            # Buscar todas las subcarpetas omitiendo el directorio oculto .git
-            find "$VORTEK_DIR" -type d -not -path '*/.*' | while read -r d; do
-              echo "include_directories(\"\${CMAKE_CURRENT_SOURCE_DIR}/${d#$VORTEK_DIR/}\")" >> /tmp/vortek_includes.txt
-            done
+foreach(HEADER_FILE ${VORTEK_HEADERS})
+    if(NOT HEADER_FILE MATCHES "/\\.")
+        get_filename_component(HEADER_DIR ${HEADER_FILE} DIRECTORY)
+        list(APPEND VORTEK_INCLUDE_DIRS ${HEADER_DIR})
+    endif()
+endforeach()
 
-            # Añadir también la raíz de vortekrenderer
-            echo 'include_directories("${CMAKE_CURRENT_SOURCE_DIR}")' >> /tmp/vortek_includes.txt
+if(VORTEK_INCLUDE_DIRS)
+    list(REMOVE_DUPLICATES VORTEK_INCLUDE_DIRS)
+endif()
 
-            # Inyectar las rutas al principio de CMakeLists.txt
-            cat /tmp/vortek_includes.txt "$CMAKELISTS" > "$CMAKELISTS.tmp" && mv "$CMAKELISTS.tmp" "$CMAKELISTS"
-            echo "Rutas de cabeceras inyectadas con éxito."
-          else
-            echo "::warning::No se encontró CMakeLists.txt directo en vortekrenderer para parchear includes."
-          fi
+file(GLOB_RECURSE VORTEK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c")
+
+add_library(vulkan_vortek SHARED
+    ${VORTEK_SOURCES}
+)
+
+target_include_directories(vulkan_vortek PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${VORTEK_INCLUDE_DIRS}
+)
+
+target_compile_definitions(vulkan_vortek PRIVATE
+    ANDROID
+    VK_USE_PLATFORM_ANDROID_KHR
+)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall -Wno-ignored-qualifiers -fexceptions -fPIC")
+
+target_link_libraries(vulkan_vortek
+    android
+    log
+    vulkan
+)
+EOF
+
+          echo "CMakeLists.txt de Vortek reestructurado con éxito."
 
 
       # ============================================================
